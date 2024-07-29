@@ -1,5 +1,6 @@
 import time
 import io
+import os
 
 import pandas as pd
 import gradio as gr
@@ -71,6 +72,7 @@ def scrape_data(urls, wait_time, progress):
             print(f"Failed to process {url}: {str(e)}")
             driver.save_screenshot("debug_screenshot.png")
             gr.Warning(f"Unable to extract name for URL: {url}")
+            scraped_data.append(user_data)
             continue
 
         try:
@@ -113,21 +115,25 @@ def scrape_data(urls, wait_time, progress):
     return scraped_data
 
 
-def app(file_name, wait_time, progress=gr.Progress()):
+def app(input_urls, file_name, wait_time, progress=gr.Progress()):
     urls = []
-    if file_name.endswith('.csv'):
-        # Load the content of the CSV directly from the input
-        df = pd.read_csv(file_name, encoding="utf-8")
-        try:
-            urls = df['URL'].unique().tolist()
-        except KeyError:
-            raise gr.Error("The CSV file must contain a column named 'URL'.")
-    else:
-        # Read the content directly as text, with one URL per line
-        with io.open(file_name, mode='r', encoding="utf-8") as f:
-            urls = f.read().splitlines()
+    if file_name:
+        if file_name.endswith('.csv'):
+            # Load the content of the CSV directly from the input
+            df = pd.read_csv(file_name, encoding="utf-8")
+            try:
+                urls = df['URL'].unique().tolist()
+            except KeyError:
+                raise gr.Error("The CSV file must contain a column named 'URL'.")
+        else:
+            # Read the content directly as text, with one URL per line
+            with io.open(file_name, mode='r', encoding="utf-8") as f:
+                urls = f.read().splitlines()
 
+    urls += input_urls.splitlines()
     urls = [url.strip().replace('\ufeff', '') for url in urls if url.strip()]
+
+    gr.Info(f"Processing: {urls}")
     
     gr.Info(f"Processing {len(urls)} URLs.")
 
@@ -139,12 +145,18 @@ def app(file_name, wait_time, progress=gr.Progress()):
     else:
         updated_df = new_df
     
-    updated_df.to_csv("updated_data.csv", index=False)
-    return "updated_data.csv"
+    # Sort by URL
+    updated_df = updated_df.sort_values(by='URL', ignore_index=True)
+    
+    # Set the filename to the current date
+    filename = f"scraped_data_{time.strftime('%Y-%m-%d')}.csv"
+    updated_df.to_csv(filename, index=False)
+    return filename
 
 gr.Interface(
     fn=app,
     inputs=[
+        gr.Textbox(label="URLs", max_lines=1000),
         gr.components.File(label="Upload CSV or Text File", file_count="single", type="filepath"),
         gr.components.Slider(1, 60, step=1, value=30, label="Max waiting time per URL (seconds)")
     ],
